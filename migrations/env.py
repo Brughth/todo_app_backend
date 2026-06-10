@@ -11,6 +11,7 @@ from app.core.config import Config
 
 # Model's MetaData object for 'autogenerate' support
 from app.features.auth.models import User
+from app.features.todos.models import Todos
 from sqlmodel import SQLModel
 
 # this is the Alembic Config object, which provides

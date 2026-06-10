@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from contextlib import asynccontextmanager
 from app.db.main import init_db
 from app.features.auth.routes import auth_router
+from app.features.todos.routes import todos_router
 
 
 @asynccontextmanager
@@ -22,3 +23,4 @@ app = FastAPI(
 # Register routers here:
 
 app.include_router(auth_router)
+app.include_router(todos_router)
