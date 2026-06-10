@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime
-from sqlmodel import SQLModel, Field, Column, UniqueConstraint
+from sqlmodel import SQLModel, Field, Column, UniqueConstraint, Index
 import sqlalchemy.dialects.postgresql as pg
 
 
@@ -14,6 +14,9 @@ class User(SQLModel, table=True):
             'phone_number',
             name='uq_users_full_phone_number'
         ),
+        Index('ix_users_id', 'id'),
+        Index('ix_users_email', 'email'),
+        Index('ix_users_full_name', 'first_name', 'last_name'),  
     )
 
 
@@ -106,6 +109,17 @@ class User(SQLModel, table=True):
             default=datetime.now,
             nullable=False,
         )
+    )
+    
+    last_login_at: datetime = Field(
+        sa_column=Column(
+            pg.TIMESTAMP(timezone=True),
+            nullable=True,
+        )
+    )
+    
+    is_locked: bool = Field(
+        sa_column=Column(pg.BOOLEAN, nullable=False, default=False)
     )
 
     def __repr__(self) -> str:

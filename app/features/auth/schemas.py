@@ -2,6 +2,7 @@ from typing import Self
 from datetime import datetime
 from pydantic import BaseModel, Field, model_validator, EmailStr
 from app.core.utils import validate_phone_fields
+from .models import User
 
 
 
@@ -22,5 +23,19 @@ class UserCreate(BaseModel):
             self.phone_number
         )
         return self
+    
+
+class LoginResponse(BaseModel):
+    access_token: str
+    refresh_token: str
+    user: User
+
+class TokenData(BaseModel):
+    access_token: str
+    refresh_token: str
+    
+class UserLogin(BaseModel):
+    email: str
+    password: str
 
         
