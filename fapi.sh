@@ -145,7 +145,10 @@ AsyncSessionLocal = async_sessionmaker(
 async def init_db() -> None:
     """
     Called at startup — verifies the DB connection only.
-    
+
+    Import your models in migrations/env.py so Alembic detects them:
+        from app.features.auth.models import User   # noqa: F401
+        from app.features.books.models import Book  # noqa: F401
     """
     async with engine.begin() as conn:
         await conn.run_sync(lambda _: None)  # health check only
@@ -429,6 +432,65 @@ def register_exception_handlers(app: FastAPI) -> None:
         )
 '
 
+  # ── app/core/pagination.py ───────────────────────────────────────────────────
+  mkf "app/core/pagination.py" 'from typing import Annotated, Generic, TypeVar
+
+from fastapi import Depends, Query
+from pydantic import BaseModel
+from sqlalchemy import func
+from sqlalchemy.sql.selectable import Select
+from sqlmodel import select
+from sqlmodel.ext.asyncio.session import AsyncSession
+
+T = TypeVar("T")
+
+
+class PaginationParams(BaseModel):
+    page: int
+    per_page: int
+
+
+def pagination_params(
+    page: int = Query(1, ge=1, description="Page number (starts at 1)"),
+    per_page: int = Query(20, ge=1, le=100, description="Items per page (max 100)"),
+) -> PaginationParams:
+    return PaginationParams(page=page, per_page=per_page)
+
+
+PaginationDep = Annotated[PaginationParams, Depends(pagination_params)]
+
+
+class PaginatedResponse(BaseModel, Generic[T]):
+    total: int
+    per_page: int
+    current_page: int
+    total_pages: int
+    data: list[T]
+
+
+async def paginate(
+    session: AsyncSession,
+    statement: Select,
+    params: PaginationParams,
+) -> PaginatedResponse:
+    count_statement = select(func.count()).select_from(statement.subquery())
+    total = (await session.exec(count_statement)).one()
+
+    offset = (params.page - 1) * params.per_page
+    page_statement = statement.offset(offset).limit(params.per_page)
+    items = (await session.exec(page_statement)).all()
+
+    total_pages = (total + params.per_page - 1) // params.per_page if total else 0
+
+    return PaginatedResponse(
+        total=total,
+        per_page=params.per_page,
+        current_page=params.page,
+        total_pages=total_pages,
+        data=list(items),
+    )
+'
+
   # ── .env ──────────────────────────────────────────────────────────────────────
   mkf ".env" 'DATABASE_URL=postgresql+asyncpg://user:password@localhost:5432/app_db
 
@@ -667,16 +729,20 @@ class ${pascal}Update(BaseModel):
 from sqlmodel import select, desc
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from app.core.pagination import paginate, PaginationParams, PaginatedResponse
 from .models import ${pascal}
 from .schemas import ${pascal}Create, ${pascal}Update
 
 
 class ${pascal}Services:
 
-    async def get_all(self, session: AsyncSession) -> list[${pascal}]:
+    async def get_all(
+        self,
+        session: AsyncSession,
+        params: PaginationParams,
+    ) -> PaginatedResponse:
         statement = select(${pascal}).order_by(desc(${pascal}.created_at))
-        result = await session.exec(statement)
-        return result.all()
+        return await paginate(session, statement, params)
 
     async def get_by_id(self, session: AsyncSession, item_id: uuid.UUID) -> ${pascal} | None:
         statement = select(${pascal}).where(${pascal}.id == item_id)
@@ -723,6 +789,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.db.main import get_session
 from app.core.dependencies import AccessTokenBearer, SessionDep
+from app.core.pagination import PaginationDep, PaginatedResponse
 from .schemas import ${pascal}, ${pascal}Create, ${pascal}Update
 from .services import ${pascal}Services
 
@@ -737,13 +804,14 @@ ${pascal}ServicesDep = Annotated[${pascal}Services, Depends(get_${name}_services
 access_token_bearer = AccessTokenBearer()
 
 
-@${name}_router.get(\"/\", response_model=list[${pascal}], status_code=status.HTTP_200_OK)
+@${name}_router.get(\"/\", response_model=PaginatedResponse[${pascal}], status_code=status.HTTP_200_OK)
 async def get_all_${name}s(
+    pagination: PaginationDep,
     service: ${pascal}ServicesDep,
     session: SessionDep,
     current_user=Depends(access_token_bearer),
 ):
-    return await service.get_all(session)
+    return await service.get_all(session, pagination)
 
 
 @${name}_router.post(\"/\", response_model=${pascal}, status_code=status.HTTP_201_CREATED)

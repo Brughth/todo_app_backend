@@ -1,10 +1,11 @@
 import uuid
 from typing import Annotated
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.db.main import get_session
 from app.core.dependencies import AccessTokenBearer, SessionDep
+from app.core.pagination import PaginationDep, PaginatedResponse
 from .schemas import TodosCreate, TodosUpdate
 from .models import Todos
 from .services import TodosServices
@@ -20,13 +21,15 @@ TodosServicesDep = Annotated[TodosServices, Depends(get_todos_services)]
 access_token_bearer = AccessTokenBearer()
 
 
-@todos_router.get("/", response_model=list[Todos], status_code=status.HTTP_200_OK)
-async def get_all_todoss(
+@todos_router.get("/", response_model=PaginatedResponse[Todos], status_code=status.HTTP_200_OK)
+async def get_all_todos(
     service: TodosServicesDep,
     session: SessionDep,
+    pagination: PaginationDep,
+    is_completed: bool | None = Query(None),
     token_data=Depends(access_token_bearer),
 ):
-    return await service.get_all(session)
+    return await service.get_all(session, pagination, is_completed)
 
 
 @todos_router.post("/", response_model=Todos, status_code=status.HTTP_201_CREATED)
@@ -70,6 +73,38 @@ async def update_todos(
             "message": "Todos not found"
         })
     return item
+
+@todos_router.patch("/{item_id}/complete", response_model=Todos, status_code=status.HTTP_200_OK)
+async def mark_todo_as_completed(
+    item_id: uuid.UUID,
+    service: TodosServicesDep,
+    session: SessionDep,
+    token_data=Depends(access_token_bearer),
+):
+    item = await service.mark_as_completed(session, item_id)
+    if item is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail={
+            "code": "TODO_NOT_FOUND",
+            "message": "Todos not found"
+        })
+    return item
+
+@todos_router.patch("/{item_id}/incomplete", response_model=Todos, status_code=status.HTTP_200_OK)
+async def mark_todo_as_uncompleted(
+    item_id: uuid.UUID,
+    service: TodosServicesDep,
+    session: SessionDep,
+    token_data=Depends(access_token_bearer),
+):
+    item = await service.mark_as_uncompleted(session, item_id)
+    if item is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail={
+            "code": "TODO_NOT_FOUND",
+            "message": "Todos not found"
+        })
+    return item
+
+
 
 
 @todos_router.delete("/{item_id}", response_model=Todos, status_code=status.HTTP_200_OK)
